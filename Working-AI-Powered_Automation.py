@@ -1,5 +1,6 @@
 """
 DIRECT LLM-POWERED PLAYWRIGHT AUTOMATION
+=========================================
 
 ARCHITECTURAL ANALYSIS:
 =======================
@@ -33,6 +34,75 @@ ARCHITECTURE:
 4. We execute directly with Playwright
 5. Log everything for debugging
 6. Repeat until task complete
+
+
+DEPENDENCIES & INSTALLATION
+============================
+
+Required Python Packages (LangChain/LLM Stack):
+  - playwright >= 1.40.0          # Browser automation
+  - langchain >= 0.1.0            # LLM framework
+  - langchain-core >= 0.1.0       # Core LLM abstractions
+  - langchain-ollama >= 1.0.0     # Ollama LLM integration
+  - langgraph >= 1.0.0            # Graph-based workflows (for logging/tracing)
+  - langgraph-checkpoint >= 4.0.0 # Checkpoint management
+  - langgraph-prebuilt >= 1.0.0   # Prebuilt agents (reference only)
+  - langgraph-sdk >= 0.3.0        # SDK utilities
+
+Installation Commands:
+=======================
+
+# 1. Create and activate Python virtual environment (Python 3.10+)
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate
+
+# 2. Upgrade pip
+pip install --upgrade pip
+
+# 3. Install core dependencies
+pip install playwright langchain langchain-core langchain-ollama
+
+# 4. Install LangGraph stack
+pip install langgraph langgraph-checkpoint langgraph-prebuilt langgraph-sdk
+
+# 5. Install Playwright browsers (required for automation)
+playwright install chromium
+
+# 6. Optional: Install additional utilities
+pip install python-dotenv  # For environment variables
+
+Complete Installation Command (all-in-one):
+============================================
+pip install playwright langchain langchain-core langchain-ollama langgraph langgraph-checkpoint langgraph-prebuilt langgraph-sdk python-dotenv
+
+Version Requirements:
+=====================
+- Python: >= 3.10
+- Playwright: >= 1.40.0
+- LangChain: 0.1.8+
+- Ollama: Running locally on http://localhost:11434
+- Model: qwen2.5-coder:7b (or any available Ollama model)
+
+System Requirements:
+====================
+- Ollama service running locally (for LLM inference)
+- Chromium browser (installed via playwright install)
+- ~2GB RAM minimum (for Ollama + automation)
+- Network: Access to http://localhost:11434 (Ollama)
+
+Verification Commands:
+======================
+# Check Ollama is running
+curl http://localhost:11434/api/tags
+
+# Test Playwright installation
+python -c "import playwright; print(playwright.__version__)"
+
+# Test LangChain installation
+python -c "import langchain; print(langchain.__version__)"
+
+# List installed packages
+pip list | grep -E "(playwright|langchain|langgraph|ollama)"
 """
 
 import asyncio
