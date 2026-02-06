@@ -115,6 +115,153 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 
+class LocatorRepository:
+    """
+    OBJECT REPOSITORY PATTERN
+    
+    Stores discovered locators in structured format:
+    {
+        "page_name": {
+            "object_name": {
+                "locator": "selector",
+                "type": "input|button|text|etc",
+                "description": "element description",
+                "discovered_at": "timestamp",
+                "used_count": 0
+            }
+        }
+    }
+    
+    Benefits:
+    - Reuse known locators (saves LLM calls)
+    - Build test data library over time
+    - Share locators across test suites
+    - Track locator stability
+    - Reduce automation maintenance
+    """
+    
+    def __init__(self, repo_name: str = "object_repository"):
+        self.repo_dir = Path("/home/vijay/Develop/AI/Automation/repositories")
+        self.repo_dir.mkdir(exist_ok=True)
+        self.repo_file = self.repo_dir / f"{repo_name}.json"
+        self.repository = self._load_repository()
+    
+    def _load_repository(self) -> Dict:
+        """Load existing repository or create new one."""
+        if self.repo_file.exists():
+            try:
+                with open(self.repo_file, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"⚠️  Error loading repository: {str(e)}, creating new one")
+                return {}
+        return {}
+    
+    def _save_repository(self):
+        """Persist repository to disk."""
+        try:
+            with open(self.repo_file, "w") as f:
+                json.dump(self.repository, f, indent=2, default=str)
+        except Exception as e:
+            print(f"❌ Error saving repository: {str(e)}")
+    
+    def add_locator(self, page_name: str, object_name: str, locator: str, 
+                   object_type: str = "element", description: str = "") -> bool:
+        """
+        Add or update a locator in the repository.
+        
+        Args:
+            page_name: Name of the page (e.g., "LoginPage", "DashboardPage")
+            object_name: Name of the UI element (e.g., "UsernameField", "LoginButton")
+            locator: The CSS selector or XPath (e.g., "input#user-name")
+            object_type: Type of element (input, button, text, link, etc.)
+            description: Human-readable description
+            
+        Returns:
+            True if new/updated, False if already exists
+        """
+        if page_name not in self.repository:
+            self.repository[page_name] = {}
+        
+        is_new = object_name not in self.repository[page_name]
+        
+        self.repository[page_name][object_name] = {
+            "locator": locator,
+            "type": object_type,
+            "description": description,
+            "discovered_at": datetime.now().isoformat(),
+            "used_count": 0 if is_new else self.repository[page_name][object_name].get("used_count", 0)
+        }
+        
+        self._save_repository()
+        return is_new
+    
+    def get_locator(self, page_name: str, object_name: str) -> Optional[Dict]:
+        """
+        Retrieve a locator from the repository.
+        
+        Args:
+            page_name: Name of the page
+            object_name: Name of the UI element
+            
+        Returns:
+            Locator dict with details, or None if not found
+        """
+        if page_name in self.repository and object_name in self.repository[page_name]:
+            locator_info = self.repository[page_name][object_name]
+            # Increment usage count
+            locator_info["used_count"] = locator_info.get("used_count", 0) + 1
+            locator_info["last_used_at"] = datetime.now().isoformat()
+            self._save_repository()
+            return locator_info
+        return None
+    
+    def get_page_objects(self, page_name: str) -> Dict:
+        """Get all objects for a specific page."""
+        return self.repository.get(page_name, {})
+    
+    def get_all_pages(self) -> list:
+        """Get list of all pages in repository."""
+        return list(self.repository.keys())
+    
+    def get_locator_by_search(self, page_name: str, search_term: str) -> Optional[Dict]:
+        """
+        Search for a locator by description or name (fuzzy).
+        Useful when you know what you want but not exact name.
+        """
+        if page_name not in self.repository:
+            return None
+        
+        for obj_name, obj_info in self.repository[page_name].items():
+            if search_term.lower() in obj_name.lower() or \
+               search_term.lower() in obj_info.get("description", "").lower():
+                return {**obj_info, "object_name": obj_name}
+        return None
+    
+    def print_repository(self):
+        """Print formatted repository contents."""
+        print("\n" + "=" * 100)
+        print("📚 OBJECT REPOSITORY CONTENTS")
+        print("=" * 100)
+        
+        if not self.repository:
+            print("Repository is empty")
+            return
+        
+        for page_name, objects in self.repository.items():
+            print(f"\n📄 PAGE: {page_name}")
+            print("-" * 100)
+            for obj_name, obj_info in objects.items():
+                print(f"  🎯 {obj_name}")
+                print(f"     Locator: {obj_info['locator']}")
+                print(f"     Type: {obj_info['type']}")
+                print(f"     Description: {obj_info.get('description', 'N/A')}")
+                print(f"     Used: {obj_info.get('used_count', 0)} times")
+                print(f"     Discovered: {obj_info.get('discovered_at', 'N/A')}")
+        
+        print("\n" + "=" * 100 + "\n")
+
+
 class LogManager:
     """
     Comprehensive logging with dual output:
@@ -232,30 +379,70 @@ class LogManager:
 
 class DirectLLMAutomationAgent:
     """
-    Direct LLM-Powered Automation Agent
+    Direct LLM-Powered Automation Agent with Object Repository
     
     Flow:
-    1. Get page state (URL + HTML content)
-    2. Send to LLM with instruction
+    1. Check if locator exists in repository (fast path)
+    2. If not found, get page state and send to LLM
     3. LLM responds with ACTION_TYPE | SELECTOR | VALUE | DESCRIPTION
-    4. Parse and execute with Playwright
-    5. Log everything
-    6. Repeat as needed
+    4. Store discovered locator in repository for future use
+    5. Parse and execute with Playwright
+    6. Log everything
+    
+    OPTIMIZATION: Reuse known locators to reduce LLM calls
     """
     
-    def __init__(self, logger: LogManager):
+    def __init__(self, logger: LogManager, repository: LocatorRepository, page_name: str = "LoginPage"):
         self.logger = logger
+        self.repository = repository
+        self.page_name = page_name
         self.llm = ChatOllama(model="qwen2.5-coder:7b", temperature=0)
     
-    async def execute_task(self, page: Page, instruction: str) -> str:
-        """Execute a single task via LLM analysis and Playwright action."""
+    async def execute_task(self, page: Page, instruction: str, object_name: Optional[str] = None) -> str:
+        """
+        Execute a single task via LLM analysis and Playwright action.
+        
+        Args:
+            page: Playwright page object
+            instruction: Task description (e.g., "Fill the username field")
+            object_name: Optional object name to check repository first
+        """
         await self.logger.log(f"Task: {instruction}", "ACTION")
         
+        # OPTIMIZATION: Check if we already know about this object
+        cached_locator = None
+        if object_name:
+            cached_locator = self.repository.get_locator(self.page_name, object_name)
+            if cached_locator:
+                await self.logger.log(
+                    f"✅ Found '{object_name}' in repository (used {cached_locator['used_count']} times)",
+                    "DEBUG",
+                    {"source": "repository", "locator": cached_locator['locator']}
+                )
+                # Construct full action string from cached locator: ACTION_TYPE | SELECTOR | VALUE | DESCRIPTION
+                action_type = cached_locator.get('type', 'click')
+                selector = cached_locator.get('locator')
+                # For fill actions, extract value from instruction or use empty
+                value = ""
+                if action_type == "fill":
+                    # Extract value from instruction if possible (e.g., "Fill username field with 'standard_user'")
+                    if "'" in instruction:
+                        import re
+                        match = re.search(r"'([^']*)'", instruction)
+                        value = match.group(1) if match else ""
+                description = cached_locator.get('description', instruction)
+                
+                # Reconstruct action string
+                full_action = f"{action_type} | {selector} | {value} | {description}"
+                await self.logger.log(f"Using cached action: {full_action}", "DEBUG")
+                
+                result = await self._execute_action(page, full_action)
+                return result
+        
+        # If not in repository, use LLM to discover it
         try:
             current_url = page.url
             page_html = await page.content()
-            
-            # Limit HTML for context window
             html_preview = page_html[:2000]
             
             system_prompt = """You are a QA automation expert. Analyze the page and provide the NEXT action in this exact format:
@@ -284,7 +471,7 @@ TASK: {instruction}
 
 What is the NEXT action? Respond in ACTION_TYPE | SELECTOR | VALUE | DESCRIPTION format."""
             
-            await self.logger.log(f"Sending to LLM: {instruction}", "PROMPT")
+            await self.logger.log(f"📝 Using LLM (not in repository)", "PROMPT")
             
             # Call LLM
             response = self.llm.invoke([
@@ -294,6 +481,29 @@ What is the NEXT action? Respond in ACTION_TYPE | SELECTOR | VALUE | DESCRIPTION
             
             llm_response = response.content.strip()
             await self.logger.log(f"LLM returned: {llm_response}", "RESPONSE")
+            
+            # Extract and store the locator
+            parts = [p.strip() for p in llm_response.split("|")]
+            if len(parts) >= 2:
+                action_type = parts[0].lower()
+                selector = parts[1]
+                description = parts[3] if len(parts) > 3 else instruction
+                
+                # Store in repository for future use
+                if object_name:
+                    is_new = self.repository.add_locator(
+                        self.page_name,
+                        object_name,
+                        selector,
+                        action_type,
+                        description
+                    )
+                    if is_new:
+                        await self.logger.log(
+                            f"💾 Stored new locator: {object_name} → {selector}",
+                            "DEBUG",
+                            {"page": self.page_name, "object": object_name, "locator": selector}
+                        )
             
             # Execute the action
             result = await self._execute_action(page, llm_response)
@@ -307,7 +517,11 @@ What is the NEXT action? Respond in ACTION_TYPE | SELECTOR | VALUE | DESCRIPTION
             return error_msg
     
     async def _execute_action(self, page: Page, action_str: str) -> str:
-        """Parse and execute action."""
+        """
+        Parse and execute action from ACTION_TYPE | SELECTOR | VALUE | DESCRIPTION format.
+        
+        Handles both LLM-generated and cached actions.
+        """
         try:
             parts = [p.strip() for p in action_str.split("|")]
             if len(parts) < 2:
@@ -350,11 +564,12 @@ What is the NEXT action? Respond in ACTION_TYPE | SELECTOR | VALUE | DESCRIPTION
 
 
 async def main():
-    """Main automation flow."""
+    """Main automation flow with Object Repository integration."""
     logger = LogManager("swag_labs_login_test1")
+    repository = LocatorRepository("swag_labs_objects")
     
     try:
-        await logger.log("ARCHITECTURE: Direct LLM-Powered Playwright", "ARCH")
+        await logger.log("ARCHITECTURE: Direct LLM-Powered Playwright + Object Repository", "ARCH")
         await logger.log("Starting browser...", "ACTION")
         
         playwright = await async_playwright().start()
@@ -370,22 +585,26 @@ async def main():
         await logger.log("Page loaded", "SUCCESS", {"url": page.url})
         await logger.log_page_snapshot(page, "initial")
         
-        # Initialize agent
-        await logger.log("Initializing Direct LLM Agent (No ReAct deprecated API)", "ACTION")
-        agent = DirectLLMAutomationAgent(logger)
-        await logger.log("Agent ready", "SUCCESS")
+        # Show repository contents
+        await logger.log("📚 Current Object Repository:", "DEBUG")
+        repository.print_repository()
         
-        # Execute login tasks
+        # Initialize agent with repository
+        await logger.log("Initializing Direct LLM Agent + Object Repository", "ACTION")
+        agent = DirectLLMAutomationAgent(logger, repository, page_name="LoginPage")
+        await logger.log("Agent ready (with locator caching)", "SUCCESS")
+        
+        # Execute login tasks with object names for repository tracking
         tasks = [
-            "Fill username field with 'standard_user'",
-            "Fill password field with 'secret_sauce'",
-            "Click the Login button to submit",
-            "Verify Products page is visible (login success)"
+            ("Fill username field with 'standard_user'", "UsernameField"),
+            ("Fill password field with 'secret_sauce'", "PasswordField"),
+            ("Click the Login button to submit", "LoginButton"),
+            ("Verify Products page is visible (login success)", "ProductsHeading")
         ]
         
-        for i, task in enumerate(tasks, 1):
+        for i, (task, obj_name) in enumerate(tasks, 1):
             await logger.log(f"\n{'='*60}\nTASK {i}/{len(tasks)}", "ACTION")
-            result = await agent.execute_task(page, task)
+            result = await agent.execute_task(page, task, object_name=obj_name)
             await asyncio.sleep(1)
             await logger.log_page_snapshot(page, f"after_task_{i}")
         
@@ -399,6 +618,10 @@ async def main():
                 await logger.log("❌ Login failed - Products not visible", "ERROR")
         except Exception as e:
             await logger.log(f"Verification error: {str(e)}", "ERROR")
+        
+        # Display updated repository with all discovered locators
+        await logger.log("📚 Updated Object Repository (after test):", "DEBUG")
+        repository.print_repository()
         
         await asyncio.sleep(5)
         
@@ -427,8 +650,8 @@ async def main():
 
 if __name__ == "__main__":
     print("\n" + "=" * 120)
-    print("🏗️  DIRECT LLM-POWERED PLAYWRIGHT AUTOMATION")
-    print("   No Deprecated APIs | Vision-Based | Direct Actions | Full Logging")
+    print("🏗️  DIRECT LLM-POWERED PLAYWRIGHT AUTOMATION + OBJECT REPOSITORY")
+    print("   No Deprecated APIs | Vision-Based | Direct Actions | Locator Caching")
     print("=" * 120 + "\n")
     
     try:

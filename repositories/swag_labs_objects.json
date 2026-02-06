@@ -1,0 +1,36 @@
+{
+  "LoginPage": {
+    "UsernameField": {
+      "locator": "input#user-name",
+      "type": "fill",
+      "description": "Fill username",
+      "discovered_at": "2026-02-05T10:47:09.078157",
+      "used_count": 4,
+      "last_used_at": "2026-02-06T00:19:06.181889"
+    },
+    "PasswordField": {
+      "locator": "input#password",
+      "type": "fill",
+      "description": "Fill password field",
+      "discovered_at": "2026-02-05T10:47:15.382914",
+      "used_count": 4,
+      "last_used_at": "2026-02-06T00:19:07.717248"
+    },
+    "LoginButton": {
+      "locator": "input#login-button",
+      "type": "click",
+      "description": "Click login button",
+      "discovered_at": "2026-02-05T10:47:20.354412",
+      "used_count": 4,
+      "last_used_at": "2026-02-06T00:19:09.234807"
+    },
+    "ProductsHeading": {
+      "locator": "text=Products",
+      "type": "verify",
+      "description": "Check if logged in",
+      "discovered_at": "2026-02-05T10:47:41.069354",
+      "used_count": 4,
+      "last_used_at": "2026-02-06T00:19:11.292556"
+    }
+  }
+}
